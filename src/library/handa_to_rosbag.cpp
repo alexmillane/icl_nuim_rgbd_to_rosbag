@@ -17,7 +17,8 @@ HandaToRosbag::HandaToRosbag(const ros::NodeHandle& nh,
     : image_params_valid_(false),
       message_frequency_(kDefaultMessageFrequency),
       image_topic_name_(kDefaultImageTopicName),
-      depth_topic_name_(kDefaultDepthTopicName) {
+      depth_topic_name_(kDefaultDepthTopicName),
+      pointcloud_topic_name_(kDefaultPointcloudTopicName) {
   // Getting data and params
   // subscribeToTopics();
   // advertiseTopics();
@@ -43,7 +44,7 @@ void HandaToRosbag::run() {
   // Loading the camera parameters
   CHECK(loadCameraParameters()) << "Couldn't load the camera parameters";
 
-  // Inspecting the other format depth images
+/*  // Inspecting the other format depth images
   std::string image_debug_path =
       "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/"
       "office_room_traj2_loop/tum/depth/0.png";
@@ -62,7 +63,7 @@ void HandaToRosbag::run() {
       float depth = static_cast<float>(pixel) / 5000.0;
       depth_debug.at<float>(row_idx, col_idx) = depth;
     }
-  }
+  }*/
   //for (auto depth_it = depth_debug.begin<float>();
   //     depth_it != depth_debug.end<float>(); depth_it++) {
   //  std::cout << "depth: " << *depth_it << std::endl;
@@ -91,31 +92,18 @@ void HandaToRosbag::run() {
       // Converting to metric depth values
       povRayImageToDepthImage(&depth);
 
-      // DEBUG
-      // Inspecting the depth values
-      //for (auto pixel_it = depth.begin<float>(); pixel_it !=
-      // depth.end<float>();
-      //     pixel_it++) {
-      //  std::cout << "pixel: " << *pixel_it << std::endl;
-      //}
-/*      double min;
-      double max;
-      cv::minMaxLoc(depth, &min, &max);
-      std::cout << "min: " << min << std::endl;
-      std::cout << "max: " << max << std::endl;
-*/
-
-      for (size_t row_idx = 0; row_idx < depth.rows; row_idx++) {
-        for (size_t col_idx = 0; col_idx < depth.cols; col_idx++) {
-          float depth_val = depth.at<float>(row_idx, col_idx);
-          float depth_debug_val = depth_debug.at<float>(row_idx, col_idx);
-          std::cout << depth_val << " vs. " << depth_debug_val << std::endl;
-        }
-      }
-
       // Generating the pointcloud
-      pcl::PointCloud<pcl::PointXYZ> pointcloud;
+      // Note pcl stamp is in MICROSECONDS, not nanoseconds.
+      //pcl::PointCloud<pcl::PointXYZ> pointcloud;
       //depthImageToPointcloud(depth, &pointcloud);
+      //pcl::PointCloud<pcl::PointXYZRGB> pointcloud;
+      //depthImageToPointcloud(depth, image, &pointcloud);
+      pcl::PointCloud<pcl::PointXYZI> pointcloud;
+      depthImageToPointcloud(depth, image, &pointcloud);
+      pointcloud.header.frame_id = "cam";
+      pointcloud.header.stamp =
+          static_cast<uint64_t>(timestamp.toNSec() / 1000);
+      bag_.write(pointcloud_topic_name_, timestamp, pointcloud);
 
       // Writing the image to the bag
       sensor_msgs::Image image_msg;
@@ -278,12 +266,7 @@ void HandaToRosbag::depthImageToPointcloud(
     const cv::Mat& depth,
     pcl::PointCloud<pcl::PointXYZ>* pointcloud_ptr) const {
   CHECK_NOTNULL(pointcloud_ptr);
-
-  // Looping over depth values and converting to points
-  /*  for (auto pixel_it = depth.begin<float>(); pixel_it != depth.end<float>();
-         pixel_it++) {
-  */
-
+  // Looping and generating 3D points
   for (size_t row_idx = 0; row_idx < depth.rows; row_idx++) {
     for (size_t col_idx = 0; col_idx < depth.cols; col_idx++) {
       // Creating the point
@@ -295,8 +278,55 @@ void HandaToRosbag::depthImageToPointcloud(
                 point.z / camera_calibration_.fy;
       // Adding to the could
       pointcloud_ptr->push_back(point);
-      // DEBUG
-      std::cout << "point: " << point << std::endl;
+    }
+  }
+}
+
+void HandaToRosbag::depthImageToPointcloud(
+    const cv::Mat& depth, const cv::Mat image,
+    pcl::PointCloud<pcl::PointXYZRGB>* pointcloud_ptr) const {
+  CHECK_NOTNULL(pointcloud_ptr);
+  // Looping and generating 3D points
+  for (size_t row_idx = 0; row_idx < depth.rows; row_idx++) {
+    for (size_t col_idx = 0; col_idx < depth.cols; col_idx++) {
+      // Creating the point
+      pcl::PointXYZRGB point;
+      point.z = depth.at<float>(row_idx, col_idx);
+      point.x = (static_cast<float>(col_idx) - camera_calibration_.cx) *
+                point.z / camera_calibration_.fx;
+      point.y = (static_cast<float>(row_idx) - camera_calibration_.cy) *
+                point.z / camera_calibration_.fy;
+      // Adding the color
+      point.b = image.at<cv::Vec3b>(row_idx, col_idx)[0];
+      point.g = image.at<cv::Vec3b>(row_idx, col_idx)[1];
+      point.r = image.at<cv::Vec3b>(row_idx, col_idx)[2];
+      // Adding to the could
+      pointcloud_ptr->push_back(point);
+    }
+  }
+}
+
+void HandaToRosbag::depthImageToPointcloud(
+    const cv::Mat& depth, const cv::Mat image,
+    pcl::PointCloud<pcl::PointXYZI>* pointcloud_ptr) const {
+  CHECK_NOTNULL(pointcloud_ptr);
+  // Looping and generating 3D points
+  for (size_t row_idx = 0; row_idx < depth.rows; row_idx++) {
+    for (size_t col_idx = 0; col_idx < depth.cols; col_idx++) {
+      // Creating the point
+      pcl::PointXYZI point;
+      point.z = depth.at<float>(row_idx, col_idx);
+      point.x = (static_cast<float>(col_idx) - camera_calibration_.cx) *
+                point.z / camera_calibration_.fx;
+      point.y = (static_cast<float>(row_idx) - camera_calibration_.cy) *
+                point.z / camera_calibration_.fy;
+      // Adding the color
+      const uint8_t b = image.at<cv::Vec3b>(row_idx, col_idx)[0];
+      const uint8_t g = image.at<cv::Vec3b>(row_idx, col_idx)[1];
+      const uint8_t r = image.at<cv::Vec3b>(row_idx, col_idx)[2];
+      point.intensity = bgrToMono(b, g, r);
+      // Adding to the could
+      pointcloud_ptr->push_back(point);
     }
   }
 }

@@ -36,4 +36,12 @@ void depthToRos(const cv::Mat& depth, sensor_msgs::Image* depth_msg){
   image_cv_bridge.toImageMsg(*depth_msg);
 }
 
+/*inline float bgrToMono(const uint8_t b, const uint8_t g, const uint8_t r) {
+  // Using the mono conversion formula here:
+  // https://docs.opencv.org/3.1.0/de/d25/imgproc_color_conversions.html
+  // and scaling from 0.0 to 1.0
+  return (0.299 * static_cast<float>(r) + 0.587 * static_cast<float>(g) +
+          0.114 * static_cast<float>(b)) / 254.0;
+}*/
+
 }  // namespace handa_to_rosbag

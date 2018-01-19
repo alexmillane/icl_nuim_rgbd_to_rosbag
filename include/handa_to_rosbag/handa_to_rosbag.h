@@ -45,6 +45,7 @@ struct CameraCalibration {
 constexpr double kDefaultMessageFrequency = 30; //Hz
 const std::string kDefaultImageTopicName = "image";
 const std::string kDefaultDepthTopicName = "depth";
+const std::string kDefaultPointcloudTopicName = "pointcloud";
 
 // Class handling global alignment calculation and publishing
 class HandaToRosbag {
@@ -86,10 +87,16 @@ class HandaToRosbag {
                                        const size_t row_idx,
                                        const size_t col_idx) const;
 
-  // Converts a depth image to a pointcloud
+  // Converts a depth image to a pointcloud (various cloud options)
   void depthImageToPointcloud(
       const cv::Mat& depth,
       pcl::PointCloud<pcl::PointXYZ>* pointcloud_ptr) const;
+  void depthImageToPointcloud(
+    const cv::Mat& depth, const cv::Mat image,
+    pcl::PointCloud<pcl::PointXYZRGB>* pointcloud_ptr) const;
+  void depthImageToPointcloud(
+    const cv::Mat& depth, const cv::Mat image,
+    pcl::PointCloud<pcl::PointXYZI>* pointcloud_ptr) const;
 
   // Filepaths
   std::string data_root_;
@@ -101,6 +108,7 @@ class HandaToRosbag {
   // Topic names
   std::string image_topic_name_;
   std::string depth_topic_name_;
+  std::string pointcloud_topic_name_;
 
   // The size of the loaded images (valid after the first image is loaded)
   bool image_params_valid_;
