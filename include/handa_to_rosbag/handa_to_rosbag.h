@@ -11,6 +11,9 @@
 
 #include <pcl_ros/point_cloud.h>
 
+#include "handa_to_rosbag/common.h"
+#include "handa_to_rosbag/conversions.h"
+
 /*#include <Eigen/Geometry>
 
 #include <eigen_conversions/eigen_msg.h>
@@ -64,10 +67,12 @@ class HandaToRosbag {
   // Loads an image at an index, returning false if none is available
   bool loadImage(const int image_idx, cv::Mat* image_ptr) const;
   bool loadDepth(const int image_idx, cv::Mat* depth_ptr) const;
+  bool loadPose(const int image_idx, Transformation* T_W_C_ptr) const;
 
   // Generates a Handa image path from the index
-  std::string indexToImagePath(const int idx) const;
-  std::string indexToDepthPath(const int idx) const;
+  inline std::string indexToImagePath(const int idx) const;
+  inline std::string indexToDepthPath(const int idx) const;
+  inline std::string indexToPosePath(const int idx) const;
   inline std::string indexToString(const int idx) const;
 
   // Time stamp generation

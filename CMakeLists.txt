@@ -13,6 +13,7 @@ include_directories(${Eigen_INCLUDE_DIRS})
 cs_add_library(handa_to_rosbag
   src/library/handa_to_rosbag.cpp
   src/library/conversions.cpp
+  src/library/pose_loader.cpp
 )
 
 cs_add_executable(handa_to_rosbag_node

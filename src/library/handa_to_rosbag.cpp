@@ -8,7 +8,7 @@
 
 #include <glog/logging.h>
 
-#include "handa_to_rosbag/conversions.h"
+#include "handa_to_rosbag/pose_loader.h"
 
 namespace handa_to_rosbag {
 
@@ -44,81 +44,63 @@ void HandaToRosbag::run() {
   // Loading the camera parameters
   CHECK(loadCameraParameters()) << "Couldn't load the camera parameters";
 
-/*  // Inspecting the other format depth images
-  std::string image_debug_path =
-      "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/"
-      "office_room_traj2_loop/tum/depth/0.png";
-  cv::Mat depth_debug_temp;
-  depth_debug_temp =
-      cv::imread(image_debug_path,
-                 CV_LOAD_IMAGE_UNCHANGED);  // CV_8UC3, CV_LOAD_IMAGE_UNCHANGED
-  std::cout << "depth_debug_temp.type(): " << depth_debug_temp.type()
-            << std::endl;
-  std::cout << "depth_debug_temp.rows: " << depth_debug_temp.rows << std::endl;
-  std::cout << "depth_debug_temp.cols: " << depth_debug_temp.cols << std::endl;
-  cv::Mat depth_debug(depth_debug_temp.rows, depth_debug_temp.cols, CV_32FC1);
-  for (size_t row_idx = 0; row_idx < depth_debug_temp.rows; row_idx++) {
-    for (size_t col_idx = 0; col_idx < depth_debug_temp.cols; col_idx++) {
-      uint16_t pixel = depth_debug_temp.at<uint16_t>(row_idx, col_idx);
-      float depth = static_cast<float>(pixel) / 5000.0;
-      depth_debug.at<float>(row_idx, col_idx) = depth;
+  // Looping and loading images
+  int image_idx = 0;
+  bool first_image = true;
+  cv::Mat image;
+  cv::Mat depth;
+  while (ros::ok()) {
+    // DEBUG
+    std::cout << "image_idx: " << std::endl << image_idx << std::endl;
+
+    // Getting the timestamp
+    const ros::Time timestamp = indexToTimestamp((image_idx+1));
+
+    // Loading the RGB image
+    loadImage(image_idx, &image);
+    // Writing the image to the bag
+    sensor_msgs::Image image_msg;
+    imageToRos(image, &image_msg);
+    bag_.write(image_topic_name_, timestamp, image_msg);
+    // Saving the image params if required
+    if (!image_params_valid_) {
+      saveImageParams(image);
     }
-  }*/
-  //for (auto depth_it = depth_debug.begin<float>();
-  //     depth_it != depth_debug.end<float>(); depth_it++) {
-  //  std::cout << "depth: " << *depth_it << std::endl;
-  //}
 
-    // Looping and loading images
-    int image_idx = 0;
-    bool first_image = true;
-    cv::Mat image;
-    cv::Mat depth;
-    while (loadImage(image_idx, &image) && ros::ok()) {
-      // Saving the image params if required
-      if (!image_params_valid_) {
-        saveImageParams(image);
-      }
+    // Loading the depth image and converting to metric depth values
+    loadDepth(image_idx, &depth);
+    povRayImageToDepthImage(&depth);
+    // Writing the depth image to the bag
+    sensor_msgs::Image depth_msg;
+    depthToRos(depth, &depth_msg);
+    bag_.write(depth_topic_name_, timestamp, depth_msg);
 
-      // DEBUG
-      std::cout << "image_idx: " << std::endl << image_idx << std::endl;
-      ++image_idx;
+    // Generating the pointcloud
+    // Note pcl stamp is in MICROSECONDS, not nanoseconds.
+    // pcl::PointCloud<pcl::PointXYZ> pointcloud;
+    // depthImageToPointcloud(depth, &pointcloud);
+    // pcl::PointCloud<pcl::PointXYZRGB> pointcloud;
+    // depthImageToPointcloud(depth, image, &pointcloud);
+    pcl::PointCloud<pcl::PointXYZI> pointcloud;
+    depthImageToPointcloud(depth, image, &pointcloud);
+    pointcloud.header.frame_id = "cam";
+    pointcloud.header.stamp = static_cast<uint64_t>(timestamp.toNSec() / 1000);
+    bag_.write(pointcloud_topic_name_, timestamp, pointcloud);
 
-      // Getting the timestamp
-      const ros::Time timestamp = indexToTimestamp(image_idx);
 
-      // Loading the depth image
-      loadDepth(image_idx, &depth);
-      // Converting to metric depth values
-      povRayImageToDepthImage(&depth);
+    // Gettting the camera pose in the world (POVRay) frame
+    Transformation T_W_C;
+    loadPose(image_idx, &T_W_C);
 
-      // Generating the pointcloud
-      // Note pcl stamp is in MICROSECONDS, not nanoseconds.
-      //pcl::PointCloud<pcl::PointXYZ> pointcloud;
-      //depthImageToPointcloud(depth, &pointcloud);
-      //pcl::PointCloud<pcl::PointXYZRGB> pointcloud;
-      //depthImageToPointcloud(depth, image, &pointcloud);
-      pcl::PointCloud<pcl::PointXYZI> pointcloud;
-      depthImageToPointcloud(depth, image, &pointcloud);
-      pointcloud.header.frame_id = "cam";
-      pointcloud.header.stamp =
-          static_cast<uint64_t>(timestamp.toNSec() / 1000);
-      bag_.write(pointcloud_topic_name_, timestamp, pointcloud);
+    // DEBUG
+    //std::cout << "T_W_C: " << std::endl << T_W_C.getTransformationMatrix() << std::endl;
 
-      // Writing the image to the bag
-      sensor_msgs::Image image_msg;
-      imageToRos(image, &image_msg);
-      bag_.write(image_topic_name_, timestamp, image_msg);
+    // DEBUG
+    // displayImage(image);
+    // displayDepth(depth);
 
-      // Writing the depth image to the bag
-      sensor_msgs::Image depth_msg;
-      depthToRos(depth, &depth_msg);
-      bag_.write(depth_topic_name_, timestamp, depth_msg);
-
-      // DEBUG
-      // displayImage(image);
-      // displayDepth(depth);
-    }
+    ++image_idx;
+  }
 }
 
 bool HandaToRosbag::loadCameraParameters() {
@@ -132,7 +114,6 @@ bool HandaToRosbag::loadCameraParameters() {
   camera_calibration_.fy = -480.00;
   camera_calibration_.cx = 319.50;
   camera_calibration_.cy = 239.50;
-
   // Hardcoded cam params are always successful
   return true;
 }
@@ -178,12 +159,27 @@ bool HandaToRosbag::loadDepth(const int image_idx, cv::Mat* depth_ptr) const {
   return true;
 }
 
+bool HandaToRosbag::loadPose(const int image_idx,
+                             Transformation* T_W_C_ptr) const {
+  CHECK_NOTNULL(T_W_C_ptr);
+  // The path to the pose file
+  std::string pose_path = indexToPosePath(image_idx);
+  // Loading the transformation using the loader
+  loadHandaPose(pose_path, T_W_C_ptr);
+  // NEED TO DO SOME TESTING IF THIS WORKED
+  return true;
+}
+
 inline std::string HandaToRosbag::indexToImagePath(const int idx) const {
   return (data_root_ + "/" + "scene_" + indexToString(idx) + ".png");
 }
 
 inline std::string HandaToRosbag::indexToDepthPath(const int idx) const {
   return (data_root_ + "/" + "scene_" + indexToString(idx) + ".depth");
+}
+
+inline std::string HandaToRosbag::indexToPosePath(const int idx) const {
+  return (data_root_ + "/" + "scene_" + indexToString(idx) + ".txt");
 }
 
 inline std::string HandaToRosbag::indexToString(const int idx) const {
@@ -254,8 +250,9 @@ float HandaToRosbag::povRayPixelToDepthPixel(const float povray_depth,
   const float col_cx_by_fx =
       (static_cast<float>(col_idx) - camera_calibration_.cx) /
       camera_calibration_.fx;
-  const float planar_depth = povray_depth / std::sqrt(col_cx_by_fx * col_cx_by_fx +
-                                  row_cy_by_fy * row_cy_by_fy + 1);
+  const float planar_depth =
+      povray_depth /
+      std::sqrt(col_cx_by_fx * col_cx_by_fx + row_cy_by_fy * row_cy_by_fy + 1);
   // Converting from units which for some reason are in cm to m.
   // I could not spot this anywhere in the docs... No idea why its in cm.
   constexpr float kCmToM = 1.0 / 100.0;
