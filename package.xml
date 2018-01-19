@@ -22,6 +22,7 @@
   <depend>glog_catkin</depend>
   <depend>rosbag</depend>
   <depend>sensor_msgs</depend>
+  <depend>pcl_ros</depend>
 
 <!--   <depend>minkindr</depend>
   <depend>minkindr_conversions</depend>

@@ -9,6 +9,8 @@
 
 #include <opencv2/highgui/highgui.hpp>
 
+#include <pcl_ros/point_cloud.h>
+
 /*#include <Eigen/Geometry>
 
 #include <eigen_conversions/eigen_msg.h>
@@ -33,6 +35,13 @@ static const std::string kDefaultGlobalFrameName = "world";
 };
 */
 
+struct CameraCalibration {
+  float fx;
+  float fy;
+  float cx;
+  float cy;
+};
+
 constexpr double kDefaultMessageFrequency = 30; //Hz
 const std::string kDefaultImageTopicName = "image";
 const std::string kDefaultDepthTopicName = "depth";
@@ -47,6 +56,9 @@ class HandaToRosbag {
   void run();
 
  private:
+
+  // Gets the camera parameters setting the relavent members
+  bool loadCameraParameters();
 
   // Loads an image at an index, returning false if none is available
   bool loadImage(const int image_idx, cv::Mat* image_ptr) const;
@@ -74,6 +86,11 @@ class HandaToRosbag {
                                        const size_t row_idx,
                                        const size_t col_idx) const;
 
+  // Converts a depth image to a pointcloud
+  void depthImageToPointcloud(
+      const cv::Mat& depth,
+      pcl::PointCloud<pcl::PointXYZ>* pointcloud_ptr) const;
+
   // Filepaths
   std::string data_root_;
   std::string output_path_;
@@ -92,6 +109,9 @@ class HandaToRosbag {
 
   // Parameters
   const double message_frequency_;
+
+  // Camera calibration
+  CameraCalibration camera_calibration_;
 
   /*  // Subscribes and Advertises to the appropriate ROS topics
     void subscribeToTopics();

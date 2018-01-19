@@ -40,45 +40,113 @@ void HandaToRosbag::run() {
   // Opening the bag
   bag_.open(output_path_, rosbag::bagmode::Write);
 
-  // Looping and loading images
-  int image_idx = 0;
-  bool first_image = true;
-  cv::Mat image;
-  cv::Mat depth;
-  while (loadImage(image_idx, &image) && ros::ok()) {
-    // Saving the image params if required
-    if (!image_params_valid_) {
-      saveImageParams(image);
+  // Loading the camera parameters
+  CHECK(loadCameraParameters()) << "Couldn't load the camera parameters";
+
+  // Inspecting the other format depth images
+  std::string image_debug_path =
+      "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/"
+      "office_room_traj2_loop/tum/depth/0.png";
+  cv::Mat depth_debug_temp;
+  depth_debug_temp =
+      cv::imread(image_debug_path,
+                 CV_LOAD_IMAGE_UNCHANGED);  // CV_8UC3, CV_LOAD_IMAGE_UNCHANGED
+  std::cout << "depth_debug_temp.type(): " << depth_debug_temp.type()
+            << std::endl;
+  std::cout << "depth_debug_temp.rows: " << depth_debug_temp.rows << std::endl;
+  std::cout << "depth_debug_temp.cols: " << depth_debug_temp.cols << std::endl;
+  cv::Mat depth_debug(depth_debug_temp.rows, depth_debug_temp.cols, CV_32FC1);
+  for (size_t row_idx = 0; row_idx < depth_debug_temp.rows; row_idx++) {
+    for (size_t col_idx = 0; col_idx < depth_debug_temp.cols; col_idx++) {
+      uint16_t pixel = depth_debug_temp.at<uint16_t>(row_idx, col_idx);
+      float depth = static_cast<float>(pixel) / 5000.0;
+      depth_debug.at<float>(row_idx, col_idx) = depth;
     }
-
-    // DEBUG
-    std::cout << "image_idx: " << std::endl << image_idx << std::endl;
-    ++image_idx;
-
-    // Getting the timestamp
-    const ros::Time timestamp = indexToTimestamp(image_idx);
-
-    // Loading the depth image
-    loadDepth(image_idx, &depth);
-
-    // NEED TO CONVERT FROM THE POVRAY DEPTH VALUES TO METRIC VALUES
-    //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    povRayImageToDepthImage(&depth);
-
-    // Writing the image to the bag
-    sensor_msgs::Image image_msg;
-    imageToRos(image, &image_msg);
-    bag_.write(image_topic_name_, timestamp, image_msg);
-
-    // Writing the depth image to the bag
-    sensor_msgs::Image depth_msg;
-    depthToRos(depth, &depth_msg);
-    bag_.write(depth_topic_name_, timestamp, depth_msg);
-
-    // DEBUG
-    // displayImage(image);
-    // displayDepth(depth);
   }
+  //for (auto depth_it = depth_debug.begin<float>();
+  //     depth_it != depth_debug.end<float>(); depth_it++) {
+  //  std::cout << "depth: " << *depth_it << std::endl;
+  //}
+
+    // Looping and loading images
+    int image_idx = 0;
+    bool first_image = true;
+    cv::Mat image;
+    cv::Mat depth;
+    while (loadImage(image_idx, &image) && ros::ok()) {
+      // Saving the image params if required
+      if (!image_params_valid_) {
+        saveImageParams(image);
+      }
+
+      // DEBUG
+      std::cout << "image_idx: " << std::endl << image_idx << std::endl;
+      ++image_idx;
+
+      // Getting the timestamp
+      const ros::Time timestamp = indexToTimestamp(image_idx);
+
+      // Loading the depth image
+      loadDepth(image_idx, &depth);
+      // Converting to metric depth values
+      povRayImageToDepthImage(&depth);
+
+      // DEBUG
+      // Inspecting the depth values
+      //for (auto pixel_it = depth.begin<float>(); pixel_it !=
+      // depth.end<float>();
+      //     pixel_it++) {
+      //  std::cout << "pixel: " << *pixel_it << std::endl;
+      //}
+/*      double min;
+      double max;
+      cv::minMaxLoc(depth, &min, &max);
+      std::cout << "min: " << min << std::endl;
+      std::cout << "max: " << max << std::endl;
+*/
+
+      for (size_t row_idx = 0; row_idx < depth.rows; row_idx++) {
+        for (size_t col_idx = 0; col_idx < depth.cols; col_idx++) {
+          float depth_val = depth.at<float>(row_idx, col_idx);
+          float depth_debug_val = depth_debug.at<float>(row_idx, col_idx);
+          std::cout << depth_val << " vs. " << depth_debug_val << std::endl;
+        }
+      }
+
+      // Generating the pointcloud
+      pcl::PointCloud<pcl::PointXYZ> pointcloud;
+      //depthImageToPointcloud(depth, &pointcloud);
+
+      // Writing the image to the bag
+      sensor_msgs::Image image_msg;
+      imageToRos(image, &image_msg);
+      bag_.write(image_topic_name_, timestamp, image_msg);
+
+      // Writing the depth image to the bag
+      sensor_msgs::Image depth_msg;
+      depthToRos(depth, &depth_msg);
+      bag_.write(depth_topic_name_, timestamp, depth_msg);
+
+      // DEBUG
+      // displayImage(image);
+      // displayDepth(depth);
+    }
+}
+
+bool HandaToRosbag::loadCameraParameters() {
+  // Hardcoded camera intrinsics matrix as per:
+  // https://www.doc.ic.ac.uk/~ahanda/VaFRIC/codes.html
+  //
+  // float K[3][3] = { 481.20, 0,       319.50,
+  //                   0,      -480.00, 239.50,
+  //                   0,      0,       1.00   };
+  camera_calibration_.fx = 481.20;
+  camera_calibration_.fy = -480.00;
+  camera_calibration_.cx = 319.50;
+  camera_calibration_.cy = 239.50;
+
+  // Hardcoded cam params are always successful
+  return true;
 }
 
 bool HandaToRosbag::loadImage(const int image_idx, cv::Mat* image_ptr) const {
@@ -168,9 +236,16 @@ void HandaToRosbag::saveImageParams(const cv::Mat& image) {
 void HandaToRosbag::povRayImageToDepthImage(cv::Mat* povray_depth_image) const {
   // Looping over pixels in the image and converting
   for (size_t row_idx = 0; row_idx < povray_depth_image->rows; row_idx++) {
-    for (size_t col_idx = 0; col_idx < povray_depth_image->rows; col_idx++) {
-      povRayPixelToDepthPixel(povray_depth_image->at<float>(row_idx, col_idx),
-                              row_idx, col_idx);
+    for (size_t col_idx = 0; col_idx < povray_depth_image->cols; col_idx++) {
+      // Getting POVRay depth
+      const float pov_depth = povray_depth_image->at<float>(row_idx, col_idx);
+      // Converting
+      const float metric_depth =
+          povRayPixelToDepthPixel(pov_depth, row_idx, col_idx);
+      // Overwritting
+      povray_depth_image->at<float>(row_idx, col_idx) = metric_depth;
+      // DEBUG
+      // std::cout << pov_depth << " -> " << metric_depth << std::endl;
     }
   }
 }
@@ -178,45 +253,52 @@ void HandaToRosbag::povRayImageToDepthImage(cv::Mat* povray_depth_image) const {
 float HandaToRosbag::povRayPixelToDepthPixel(const float povray_depth,
                                              const size_t row_idx,
                                              const size_t col_idx) const {
-  // NEED TO LOAD THE FOCUS!!!!!
-  constexpr float f = 1.0;
-  // Conversion as per: https://www.doc.ic.ac.uk/~ahanda/VaFRIC/codes.html)
-  return f * std::sqrt(std::pow(povray_depth, 2) /
-                       (std::pow(col_idx, 2) + std::pow(f, 2) +
-                        std::pow(row_idx, 2)));
+  // Conversion as per the converter found at
+  // https://www.doc.ic.ac.uk/~ahanda/VaFRIC/codes.html)
+  // float u_u0_by_fx = (u - u0) / focal_x;
+  // float v_v0_by_fy = (v - v0) / focal_y;
+  // depth_array[u + v * img_width] =
+  //    depth_array[u + v * img_width] /
+  //    sqrt(u_u0_by_fx * u_u0_by_fx + v_v0_by_fy * v_v0_by_fy + 1);
+  const float row_cy_by_fy =
+      (static_cast<float>(row_idx) - camera_calibration_.cy) /
+      camera_calibration_.fy;
+  const float col_cx_by_fx =
+      (static_cast<float>(col_idx) - camera_calibration_.cx) /
+      camera_calibration_.fx;
+  const float planar_depth = povray_depth / std::sqrt(col_cx_by_fx * col_cx_by_fx +
+                                  row_cy_by_fy * row_cy_by_fy + 1);
+  // Converting from units which for some reason are in cm to m.
+  // I could not spot this anywhere in the docs... No idea why its in cm.
+  constexpr float kCmToM = 1.0 / 100.0;
+  return planar_depth * kCmToM;
 }
 
-/*void HandaToRosbag::subscribeToTopics() {
-  // Subscribing to the required data topics
-  transform_sub_ = nh_.subscribe("transform_to_be_converted", 1,
-                                 &HandaToRosbag::transformCallback, this);
+void HandaToRosbag::depthImageToPointcloud(
+    const cv::Mat& depth,
+    pcl::PointCloud<pcl::PointXYZ>* pointcloud_ptr) const {
+  CHECK_NOTNULL(pointcloud_ptr);
+
+  // Looping over depth values and converting to points
+  /*  for (auto pixel_it = depth.begin<float>(); pixel_it != depth.end<float>();
+         pixel_it++) {
+  */
+
+  for (size_t row_idx = 0; row_idx < depth.rows; row_idx++) {
+    for (size_t col_idx = 0; col_idx < depth.cols; col_idx++) {
+      // Creating the point
+      pcl::PointXYZ point;
+      point.z = depth.at<float>(row_idx, col_idx);
+      point.x = (static_cast<float>(col_idx) - camera_calibration_.cx) *
+                point.z / camera_calibration_.fx;
+      point.y = (static_cast<float>(row_idx) - camera_calibration_.cy) *
+                point.z / camera_calibration_.fy;
+      // Adding to the could
+      pointcloud_ptr->push_back(point);
+      // DEBUG
+      std::cout << "point: " << point << std::endl;
+    }
+  }
 }
 
-void HandaToRosbag::advertiseTopics() {
-  // Advertising topics
-  tf_timer_ = nh_.createTimer(ros::Duration(0.01),
-                              &HandaToRosbag::publishTFTransform, this);
-}
-
-void HandaToRosbag::getParametersFromRos() {
-  // Retrieving the parameters
-  nh_private_.getParam("verbose", verbose_);
-  nh_private_.getParam("local_frame_name", local_frame_name_);
-  nh_private_.getParam("global_frame_name", global_frame_name_);
-}
-
-void HandaToRosbag::transformCallback(
-    const geometry_msgs::TransformStampedConstPtr& msg) {
-  // Converting and storing the transform
-  transform_.stamp = msg->header.stamp;
-  tf::transformMsgToKindr(msg->transform, &transform_.transformation);
-}
-
-void HandaToRosbag::publishTFTransform(const ros::TimerEvent& event) {
-  tf::Transform tf_transform;
-  tf::transformKindrToTF(transform_.transformation, &tf_transform);
-  tf_broadcaster_.sendTransform(tf::StampedTransform(
-      tf_transform, ros::Time::now(), global_frame_name_, local_frame_name_));
-}
-*/
 }  // namespace handa_to_rosbag
