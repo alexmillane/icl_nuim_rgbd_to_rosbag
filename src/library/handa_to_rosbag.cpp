@@ -63,7 +63,7 @@ void HandaToRosbag::run() {
 
     // NEED TO CONVERT FROM THE POVRAY DEPTH VALUES TO METRIC VALUES
     //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
+    povRayImageToDepthImage(&depth);
 
     // Writing the image to the bag
     sensor_msgs::Image image_msg;
@@ -76,8 +76,8 @@ void HandaToRosbag::run() {
     bag_.write(depth_topic_name_, timestamp, depth_msg);
 
     // DEBUG
-    //displayImage(image);
-    //displayDepth(depth);
+    // displayImage(image);
+    // displayDepth(depth);
   }
 }
 
@@ -163,6 +163,27 @@ void HandaToRosbag::saveImageParams(const cv::Mat& image) {
   image_size_rows_ = image.rows;
   image_size_cols_ = image.cols;
   image_params_valid_ = true;
+}
+
+void HandaToRosbag::povRayImageToDepthImage(cv::Mat* povray_depth_image) const {
+  // Looping over pixels in the image and converting
+  for (size_t row_idx = 0; row_idx < povray_depth_image->rows; row_idx++) {
+    for (size_t col_idx = 0; col_idx < povray_depth_image->rows; col_idx++) {
+      povRayPixelToDepthPixel(povray_depth_image->at<float>(row_idx, col_idx),
+                              row_idx, col_idx);
+    }
+  }
+}
+
+float HandaToRosbag::povRayPixelToDepthPixel(const float povray_depth,
+                                             const size_t row_idx,
+                                             const size_t col_idx) const {
+  // NEED TO LOAD THE FOCUS!!!!!
+  constexpr float f = 1.0;
+  // Conversion as per: https://www.doc.ic.ac.uk/~ahanda/VaFRIC/codes.html)
+  return f * std::sqrt(std::pow(povray_depth, 2) /
+                       (std::pow(col_idx, 2) + std::pow(f, 2) +
+                        std::pow(row_idx, 2)));
 }
 
 /*void HandaToRosbag::subscribeToTopics() {

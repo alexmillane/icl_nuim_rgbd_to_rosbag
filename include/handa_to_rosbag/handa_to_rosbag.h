@@ -69,7 +69,10 @@ class HandaToRosbag {
 
   // Converts a matrix in POVRay native format to depth values (as described at
   // https://www.doc.ic.ac.uk/~ahanda/VaFRIC/codes.html)
-  // TODO
+  void povRayImageToDepthImage(cv::Mat* povray_depth_image) const;
+  inline float povRayPixelToDepthPixel(const float povray_depth,
+                                       const size_t row_idx,
+                                       const size_t col_idx) const;
 
   // Filepaths
   std::string data_root_;

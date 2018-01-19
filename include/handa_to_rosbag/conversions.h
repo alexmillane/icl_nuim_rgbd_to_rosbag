@@ -14,6 +14,10 @@
 */
 namespace handa_to_rosbag {
 
+// Image types to ROS messages
+void imageToRos(const cv::Mat& image, sensor_msgs::Image* image_msg);
+void depthToRos(const cv::Mat& depth, sensor_msgs::Image* depth_msg);
+
 /*void calibrationToRos(uint64_t cam_id, const CameraCalibration& cam,
                       sensor_msgs::CameraInfo* cam_msg);
 void stereoCalibrationToRos(const CameraCalibration& left_cam,
@@ -21,9 +25,6 @@ void stereoCalibrationToRos(const CameraCalibration& left_cam,
                             sensor_msgs::CameraInfo* left_cam_msg,
                             sensor_msgs::CameraInfo* right_cam_msg);
 */
-
-void imageToRos(const cv::Mat& image, sensor_msgs::Image* image_msg);
-void depthToRos(const cv::Mat& depth, sensor_msgs::Image* depth_msg);
 
 /*void poseToRos(const Transformation& transform,
                geometry_msgs::PoseStamped* pose_msg);
