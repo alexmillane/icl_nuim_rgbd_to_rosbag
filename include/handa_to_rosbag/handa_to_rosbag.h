@@ -49,6 +49,7 @@ constexpr double kDefaultMessageFrequency = 30; //Hz
 const std::string kDefaultImageTopicName = "image";
 const std::string kDefaultDepthTopicName = "depth";
 const std::string kDefaultPointcloudTopicName = "pointcloud";
+const std::string kDefaultTransformTopicName = "transform";
 
 // Class handling global alignment calculation and publishing
 class HandaToRosbag {
@@ -103,6 +104,12 @@ class HandaToRosbag {
     const cv::Mat& depth, const cv::Mat image,
     pcl::PointCloud<pcl::PointXYZI>* pointcloud_ptr) const;
 
+  // Removes the offset such that the first pose is at position zero;
+  void removePoseOffset(Transformation* T_W_C_ptr);
+
+  // Converts a POVRay position vector to a metric one (basically divide by 100)
+  void povRayPoseToMetricPose(Transformation* T_W_C_ptr) const;
+
   // Filepaths
   std::string data_root_;
   std::string output_path_;
@@ -114,6 +121,7 @@ class HandaToRosbag {
   std::string image_topic_name_;
   std::string depth_topic_name_;
   std::string pointcloud_topic_name_;
+  std::string transform_topic_name_;
 
   // The size of the loaded images (valid after the first image is loaded)
   bool image_params_valid_;
@@ -125,6 +133,10 @@ class HandaToRosbag {
 
   // Camera calibration
   CameraCalibration camera_calibration_;
+
+  // Members for zeroing the first camera position
+  bool first_pose_flag_;
+  Transformation first_pose_;
 
   /*  // Subscribes and Advertises to the appropriate ROS topics
     void subscribeToTopics();

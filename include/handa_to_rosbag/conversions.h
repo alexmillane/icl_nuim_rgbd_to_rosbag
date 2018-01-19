@@ -2,21 +2,29 @@
 #define HANDA_TO_ROSBAG_CONVERSIONS_H_
 
 #include <sensor_msgs/Image.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <tf/transform_datatypes.h>
+#include <tf/tfMessage.h>
 
 #include <opencv2/highgui/highgui.hpp>
+
+#include "handa_to_rosbag/common.h"
 
 /*#include <sensor_msgs/CameraInfo.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TransformStamped.h>
-#include <tf/transform_datatypes.h>
-
-#include "kitti_to_rosbag/kitti_common.h"
 */
 namespace handa_to_rosbag {
 
 // Image types to ROS messages
 void imageToRos(const cv::Mat& image, sensor_msgs::Image* image_msg);
 void depthToRos(const cv::Mat& depth, sensor_msgs::Image* depth_msg);
+
+// Transform conversions.
+void transformToTf(const Transformation& transform,
+                   tf::Transform* tf_transform);
+void transformToRos(const Transformation& transform,
+                    geometry_msgs::TransformStamped* transform_msg);
 
 // Color conversion
 //inline float bgrToMono(const uint8_t b, const uint8_t g, const uint8_t r);

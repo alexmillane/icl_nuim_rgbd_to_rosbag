@@ -18,7 +18,9 @@ HandaToRosbag::HandaToRosbag(const ros::NodeHandle& nh,
       message_frequency_(kDefaultMessageFrequency),
       image_topic_name_(kDefaultImageTopicName),
       depth_topic_name_(kDefaultDepthTopicName),
-      pointcloud_topic_name_(kDefaultPointcloudTopicName) {
+      pointcloud_topic_name_(kDefaultPointcloudTopicName),
+      transform_topic_name_(kDefaultTransformTopicName),
+      first_pose_flag_(true) {
   // Getting data and params
   // subscribeToTopics();
   // advertiseTopics();
@@ -54,7 +56,7 @@ void HandaToRosbag::run() {
     std::cout << "image_idx: " << std::endl << image_idx << std::endl;
 
     // Getting the timestamp
-    const ros::Time timestamp = indexToTimestamp((image_idx+1));
+    const ros::Time timestamp = indexToTimestamp((image_idx + 1));
 
     // Loading the RGB image
     loadImage(image_idx, &image);
@@ -87,13 +89,31 @@ void HandaToRosbag::run() {
     pointcloud.header.stamp = static_cast<uint64_t>(timestamp.toNSec() / 1000);
     bag_.write(pointcloud_topic_name_, timestamp, pointcloud);
 
-
     // Gettting the camera pose in the world (POVRay) frame
     Transformation T_W_C;
     loadPose(image_idx, &T_W_C);
 
+    //T_W_C = T_W_C.inverse();
+
+    povRayPoseToMetricPose(&T_W_C);
+    removePoseOffset(&T_W_C);
+
+
+    // Writing to TransformStamped to bag
+    geometry_msgs::TransformStamped T_W_C_msg;
+    transformToRos(T_W_C, &T_W_C_msg);
+    T_W_C_msg.header.stamp = timestamp;
+    T_W_C_msg.header.frame_id = "world";
+    T_W_C_msg.child_frame_id = "cam";
+    bag_.write(transform_topic_name_, timestamp, T_W_C_msg);
+    // Writing to Tf to bag
+    tf::tfMessage T_W_C_tf_msg;
+    T_W_C_tf_msg.transforms.push_back(T_W_C_msg);
+    bag_.write("/tf", timestamp, T_W_C_tf_msg);
+
     // DEBUG
-    //std::cout << "T_W_C: " << std::endl << T_W_C.getTransformationMatrix() << std::endl;
+    //std::cout << "T_W_C: " << std::endl
+    //          << T_W_C.getTransformationMatrix() << std::endl;
 
     // DEBUG
     // displayImage(image);
@@ -326,6 +346,25 @@ void HandaToRosbag::depthImageToPointcloud(
       pointcloud_ptr->push_back(point);
     }
   }
+}
+
+void HandaToRosbag::removePoseOffset(Transformation* T_W_C_ptr) {
+  CHECK_NOTNULL(T_W_C_ptr);
+  // Saving the first camera pose if required
+  if (first_pose_flag_ == true) {
+    first_pose_ = *T_W_C_ptr;
+    first_pose_flag_ = false;
+  }
+  // Removing the first camera position offset
+  //T_W_C_ptr->getPosition() =
+  //    T_W_C_ptr->getPosition() - first_pose_.getPosition();
+  *T_W_C_ptr = (*T_W_C_ptr) * first_pose_.inverse();
+}
+
+void HandaToRosbag::povRayPoseToMetricPose(Transformation* T_W_C_ptr) const {
+  CHECK_NOTNULL(T_W_C_ptr);
+  // Units are in cm for some fucked up reason
+  T_W_C_ptr->getPosition() = T_W_C_ptr->getPosition() / 1000.0;
 }
 
 }  // namespace handa_to_rosbag

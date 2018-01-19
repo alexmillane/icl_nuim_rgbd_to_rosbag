@@ -4,6 +4,9 @@
 
 #include <glog/logging.h>
 
+#include <minkindr_conversions/kindr_msg.h>
+#include <minkindr_conversions/kindr_tf.h>
+
 namespace handa_to_rosbag {
 
 void imageToRos(const cv::Mat& image, sensor_msgs::Image* image_msg) {
@@ -23,7 +26,7 @@ void imageToRos(const cv::Mat& image, sensor_msgs::Image* image_msg) {
   image_cv_bridge.toImageMsg(*image_msg);
 }
 
-void depthToRos(const cv::Mat& depth, sensor_msgs::Image* depth_msg){
+void depthToRos(const cv::Mat& depth, sensor_msgs::Image* depth_msg) {
   // Creating the bridge for convertion
   cv_bridge::CvImage image_cv_bridge;
   // Copying in the image data
@@ -34,6 +37,16 @@ void depthToRos(const cv::Mat& depth, sensor_msgs::Image* depth_msg){
   image_cv_bridge.encoding = "32FC1";
   // Creating the message
   image_cv_bridge.toImageMsg(*depth_msg);
+}
+
+void transformToTf(const Transformation& transform,
+                   tf::Transform* tf_transform) {
+  tf::transformKindrToTF(transform, tf_transform);
+}
+
+void transformToRos(const Transformation& transform,
+                    geometry_msgs::TransformStamped* transform_msg) {
+  tf::transformKindrToMsg(transform, &transform_msg->transform);
 }
 
 /*inline float bgrToMono(const uint8_t b, const uint8_t g, const uint8_t r) {
