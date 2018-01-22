@@ -106,21 +106,24 @@ void loadHandaPose(const std::string& pose_path, Transformation* T_W_C_ptr) {
   unit_y[2] = unit_z[0] * unit_x[1] - unit_z[1] * unit_x[0];
 
   // Composing the matrix
-  Eigen::Matrix3d R_W_C;
-  R_W_C(0,0) = unit_x.x();
-  R_W_C(0,1) = unit_x.y();
-  R_W_C(0,2) = unit_x.z();
+  // NOTE(alexmillane): Here there is some difference in rotation definitions.
+  // Probably active vs. passive so an inversion is required.
+  Eigen::Matrix3d R_C_W;
+  R_C_W(0,0) = unit_x.x();
+  R_C_W(0,1) = unit_x.y();
+  R_C_W(0,2) = unit_x.z();
 
-  R_W_C(1,0) = unit_y.x();
-  R_W_C(1,1) = unit_y.y();
-  R_W_C(1,2) = unit_y.z();
+  R_C_W(1,0) = unit_y.x();
+  R_C_W(1,1) = unit_y.y();
+  R_C_W(1,2) = unit_y.z();
 
-  R_W_C(2,0) = unit_z.x();
-  R_W_C(2,1) = unit_z.y();
-  R_W_C(2,2) = unit_z.z();
+  R_C_W(2,0) = unit_z.x();
+  R_C_W(2,1) = unit_z.y();
+  R_C_W(2,2) = unit_z.z();
 
   // Building the minkindr transform
-  Quaternion q_W_C(R_W_C);
+  Quaternion q_C_W(R_C_W);
+  Quaternion q_W_C = q_C_W.inverse();
   *T_W_C_ptr = Transformation(q_W_C, p_W_C);
 }
 

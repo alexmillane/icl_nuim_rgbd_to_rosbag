@@ -92,13 +92,8 @@ void HandaToRosbag::run() {
     // Gettting the camera pose in the world (POVRay) frame
     Transformation T_W_C;
     loadPose(image_idx, &T_W_C);
-
-    //T_W_C = T_W_C.inverse();
-
     povRayPoseToMetricPose(&T_W_C);
     removePoseOffset(&T_W_C);
-
-
     // Writing to TransformStamped to bag
     geometry_msgs::TransformStamped T_W_C_msg;
     transformToRos(T_W_C, &T_W_C_msg);
@@ -112,8 +107,7 @@ void HandaToRosbag::run() {
     bag_.write("/tf", timestamp, T_W_C_tf_msg);
 
     // DEBUG
-    //std::cout << "T_W_C: " << std::endl
-    //          << T_W_C.getTransformationMatrix() << std::endl;
+    //std::cout << "T_W_C: " << std::endl << T_W_C.asVector() << std::endl;
 
     // DEBUG
     // displayImage(image);
@@ -357,14 +351,15 @@ void HandaToRosbag::removePoseOffset(Transformation* T_W_C_ptr) {
   }
   // Removing the first camera position offset
   //T_W_C_ptr->getPosition() =
-  //    T_W_C_ptr->getPosition() - first_pose_.getPosition();
-  *T_W_C_ptr = (*T_W_C_ptr) * first_pose_.inverse();
+  //    first_pose_.getPosition() - T_W_C_ptr->getPosition();
+  *T_W_C_ptr = first_pose_.inverse() * (*T_W_C_ptr);
 }
 
 void HandaToRosbag::povRayPoseToMetricPose(Transformation* T_W_C_ptr) const {
   CHECK_NOTNULL(T_W_C_ptr);
   // Units are in cm for some fucked up reason
-  T_W_C_ptr->getPosition() = T_W_C_ptr->getPosition() / 1000.0;
+  constexpr float kCmToM = 1.0 / 100.0;
+  T_W_C_ptr->getPosition() = T_W_C_ptr->getPosition() * kCmToM;
 }
 
 }  // namespace handa_to_rosbag
