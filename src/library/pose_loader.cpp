@@ -109,22 +109,92 @@ void loadHandaPose(const std::string& pose_path, Transformation* T_W_C_ptr) {
   // NOTE(alexmillane): Here there is some difference in rotation definitions.
   // Probably active vs. passive so an inversion is required.
   Eigen::Matrix3d R_C_W;
-  R_C_W(0,0) = unit_x.x();
-  R_C_W(0,1) = unit_x.y();
-  R_C_W(0,2) = unit_x.z();
+  R_C_W(0, 0) = unit_x.x();
+  R_C_W(0, 1) = unit_x.y();
+  R_C_W(0, 2) = unit_x.z();
 
-  R_C_W(1,0) = unit_y.x();
-  R_C_W(1,1) = unit_y.y();
-  R_C_W(1,2) = unit_y.z();
+  R_C_W(1, 0) = unit_y.x();
+  R_C_W(1, 1) = unit_y.y();
+  R_C_W(1, 2) = unit_y.z();
 
-  R_C_W(2,0) = unit_z.x();
-  R_C_W(2,1) = unit_z.y();
-  R_C_W(2,2) = unit_z.z();
+  R_C_W(2, 0) = unit_z.x();
+  R_C_W(2, 1) = unit_z.y();
+  R_C_W(2, 2) = unit_z.z();
 
   // Building the minkindr transform
   Quaternion q_C_W(R_C_W);
-  Quaternion q_W_C = q_C_W.inverse();
+
+  // For office dataset.
+  /*  Quaternion q_W_C = q_C_W.inverse();
+    *T_W_C_ptr = Transformation(q_W_C, p_W_C);
+  */
+  // For office dataset.
+  *T_W_C_ptr = Transformation(q_C_W, p_W_C);
+
+  // For office dataset.
+  // Quaternion q_W_C = q_C_W.inverse();
+  // Transformation T_C_W(q_W_C, p_W_C);
+  //*T_W_C_ptr = T_C_W.inverse();
+}
+
+void loadFreiburgPose(const std::string& pose_path, int index,
+                      Transformation* T_W_C_ptr) {
+  CHECK_NOTNULL(T_W_C_ptr);
+  // Open the file
+  std::ifstream cam_pars_file(pose_path);
+
+  // Looping to the requested line and reading (seems slow and retarded).
+  char readlinedata[300];
+  for (int i = 0; i <= index; i++) {
+    //std::cout << "i: " << i << std::endl;
+    cam_pars_file.getline(readlinedata, 300);
+  }
+  std::string line_string(readlinedata);
+
+  // Check for accidentally reading the end of the file.
+  if (cam_pars_file.eof()) {
+    std::cout << "tried to read off the end of the file." << std::endl;
+    return;
+  }
+
+  // The delimiter used in the freiburg pose string
+  const std::string delimiter(" ");
+
+  // The vector representing the pose
+  Eigen::Matrix<double, 7, 1> pose_vector;
+
+  // EXAMPLE
+  size_t position = 0;
+
+  // Getting the pose count
+  std::string index_string;
+  position = line_string.find(delimiter);
+  index_string = line_string.substr(0, position);
+  line_string.erase(0, position + delimiter.length());
+
+  // Getting the pose values
+  std::string value_string;
+  size_t value_idx = 0;
+  for (; value_idx < 7; value_idx++) {
+    position = line_string.find(delimiter);
+    value_string = line_string.substr(0, position);
+    line_string.erase(0, position + delimiter.length());
+    // Populating the vector
+    pose_vector[value_idx] = std::stod(value_string);
+  }
+  ++value_idx;
+  pose_vector[value_idx] = std::stod(line_string);
+  
+  //DEBUG
+  //std::cout << "pose_vector: " << std::endl << pose_vector << std::endl;
+
+  // Building the transformation
+  Position p_W_C = pose_vector.head<3>();
+  Quaternion q_W_C = Quaternion(pose_vector[6], pose_vector[3], pose_vector[4],
+                                pose_vector[5]);
   *T_W_C_ptr = Transformation(q_W_C, p_W_C);
+  //std::cout << "p_W_C: " << std::endl << p_W_C << std::endl;
+  //std::cout << "q_W_C: " << std::endl << q_W_C << std::endl;
 }
 
 }  // namespace handa_to_rosbag

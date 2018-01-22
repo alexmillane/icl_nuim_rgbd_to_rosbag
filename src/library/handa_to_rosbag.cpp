@@ -20,7 +20,8 @@ HandaToRosbag::HandaToRosbag(const ros::NodeHandle& nh,
       depth_topic_name_(kDefaultDepthTopicName),
       pointcloud_topic_name_(kDefaultPointcloudTopicName),
       transform_topic_name_(kDefaultTransformTopicName),
-      first_pose_flag_(true) {
+      first_pose_flag_(true),
+      distances_in_cm_(kDefaultDistancesInCm) {
   // Getting data and params
   // subscribeToTopics();
   // advertiseTopics();
@@ -28,12 +29,16 @@ HandaToRosbag::HandaToRosbag(const ros::NodeHandle& nh,
 
   // HARDCODED PATHS
   data_root_ = std::string(
-      "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/"
-      "office_room_traj2_loop/raw");
+      "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
+      "living_room_traj0_loop/raw");
 
   output_path_ = std::string(
-      "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/"
-      "office_room_traj2_loop/rosbag/data.bag");
+      "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
+      "living_room_traj0_loop/rosbag/data.bag");
+
+  pose_path_ = std::string(
+      "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
+      "livingRoom0.gt.freiburg");
 }
 
 void HandaToRosbag::run() {
@@ -58,8 +63,10 @@ void HandaToRosbag::run() {
     // Getting the timestamp
     const ros::Time timestamp = indexToTimestamp((image_idx + 1));
 
-    // Loading the RGB image
-    loadImage(image_idx, &image);
+    // Loading the RGB image (exiting loop if out of images)
+    if(!loadImage(image_idx, &image)) {
+      break;
+    }
     // Writing the image to the bag
     sensor_msgs::Image image_msg;
     imageToRos(image, &image_msg);
@@ -72,6 +79,17 @@ void HandaToRosbag::run() {
     // Loading the depth image and converting to metric depth values
     loadDepth(image_idx, &depth);
     povRayImageToDepthImage(&depth);
+
+    // Inspecting the depth images
+    //for (auto pixel_it = depth.begin<float>(); pixel_it != depth.end<float>();
+    //     pixel_it++) {
+    //  std::cout << "pixel: " << *pixel_it << std::endl;
+    //}
+    //double min;
+    //double max;
+    //cv::minMaxLoc(depth, &min, &max);
+    //std::cout << "[ " << min << " to " << max << " ]" << std::endl;
+
     // Writing the depth image to the bag
     sensor_msgs::Image depth_msg;
     depthToRos(depth, &depth_msg);
@@ -81,25 +99,28 @@ void HandaToRosbag::run() {
     // Note pcl stamp is in MICROSECONDS, not nanoseconds.
     // pcl::PointCloud<pcl::PointXYZ> pointcloud;
     // depthImageToPointcloud(depth, &pointcloud);
-    // pcl::PointCloud<pcl::PointXYZRGB> pointcloud;
-    // depthImageToPointcloud(depth, image, &pointcloud);
-    pcl::PointCloud<pcl::PointXYZI> pointcloud;
+    pcl::PointCloud<pcl::PointXYZRGB> pointcloud;
     depthImageToPointcloud(depth, image, &pointcloud);
+    //pcl::PointCloud<pcl::PointXYZI> pointcloud;
+    //depthImageToPointcloud(depth, image, &pointcloud);
     pointcloud.header.frame_id = "cam";
     pointcloud.header.stamp = static_cast<uint64_t>(timestamp.toNSec() / 1000);
     bag_.write(pointcloud_topic_name_, timestamp, pointcloud);
 
     // Gettting the camera pose in the world (POVRay) frame
     Transformation T_W_C;
-    loadPose(image_idx, &T_W_C);
-    povRayPoseToMetricPose(&T_W_C);
+    // FROM NATIVE FORMAT (SHIT)
+    //loadPose(image_idx, &T_W_C);
+    //povRayPoseToMetricPose(&T_W_C);
+    // FROM FREIBURG FORMAT
+    loadFreiburgPose(pose_path_, image_idx, &T_W_C);
     removePoseOffset(&T_W_C);
     // Writing to TransformStamped to bag
     geometry_msgs::TransformStamped T_W_C_msg;
     transformToRos(T_W_C, &T_W_C_msg);
     T_W_C_msg.header.stamp = timestamp;
-    T_W_C_msg.header.frame_id = "world";
-    T_W_C_msg.child_frame_id = "cam";
+    T_W_C_msg.header.frame_id = "world";//"world";
+    T_W_C_msg.child_frame_id = "cam";//"cam";
     bag_.write(transform_topic_name_, timestamp, T_W_C_msg);
     // Writing to Tf to bag
     tf::tfMessage T_W_C_tf_msg;
@@ -110,8 +131,8 @@ void HandaToRosbag::run() {
     //std::cout << "T_W_C: " << std::endl << T_W_C.asVector() << std::endl;
 
     // DEBUG
-    // displayImage(image);
-    // displayDepth(depth);
+    //displayImage(image);
+    //displayDepth(depth);
 
     ++image_idx;
   }
@@ -185,21 +206,22 @@ bool HandaToRosbag::loadPose(const int image_idx,
 }
 
 inline std::string HandaToRosbag::indexToImagePath(const int idx) const {
-  return (data_root_ + "/" + "scene_" + indexToString(idx) + ".png");
+  return (data_root_ + "/" + "scene_00_" + indexToString(idx) + ".png");
 }
 
 inline std::string HandaToRosbag::indexToDepthPath(const int idx) const {
-  return (data_root_ + "/" + "scene_" + indexToString(idx) + ".depth");
+  return (data_root_ + "/" + "scene_00_" + indexToString(idx) + ".depth");
 }
 
 inline std::string HandaToRosbag::indexToPosePath(const int idx) const {
-  return (data_root_ + "/" + "scene_" + indexToString(idx) + ".txt");
+  return (data_root_ + "/" + "scene_00_" + indexToString(idx) + ".txt");
 }
 
 inline std::string HandaToRosbag::indexToString(const int idx) const {
   // Getting a three digit index
+  constexpr int num_chars = 4;
   std::stringstream ss;
-  ss << std::setw(3) << std::setfill('0') << idx;
+  ss << std::setw(num_chars) << std::setfill('0') << idx;
   return ss.str();
 }
 
@@ -264,13 +286,17 @@ float HandaToRosbag::povRayPixelToDepthPixel(const float povray_depth,
   const float col_cx_by_fx =
       (static_cast<float>(col_idx) - camera_calibration_.cx) /
       camera_calibration_.fx;
-  const float planar_depth =
+  float planar_depth =
       povray_depth /
       std::sqrt(col_cx_by_fx * col_cx_by_fx + row_cy_by_fy * row_cy_by_fy + 1);
   // Converting from units which for some reason are in cm to m.
   // I could not spot this anywhere in the docs... No idea why its in cm.
-  constexpr float kCmToM = 1.0 / 100.0;
-  return planar_depth * kCmToM;
+  // NOTE(alexmillane): This conversion is only needed in the office dataset
+  if (distances_in_cm_) {
+    constexpr float kCmToM = 1.0 / 100.0;
+    planar_depth = planar_depth * kCmToM;
+  } 
+  return planar_depth;
 }
 
 void HandaToRosbag::depthImageToPointcloud(
@@ -358,8 +384,10 @@ void HandaToRosbag::removePoseOffset(Transformation* T_W_C_ptr) {
 void HandaToRosbag::povRayPoseToMetricPose(Transformation* T_W_C_ptr) const {
   CHECK_NOTNULL(T_W_C_ptr);
   // Units are in cm for some fucked up reason
-  constexpr float kCmToM = 1.0 / 100.0;
-  T_W_C_ptr->getPosition() = T_W_C_ptr->getPosition() * kCmToM;
+  if (distances_in_cm_) {
+    constexpr float kCmToM = 1.0 / 100.0;
+    T_W_C_ptr->getPosition() = T_W_C_ptr->getPosition() * kCmToM;
+  }
 }
 
 }  // namespace handa_to_rosbag

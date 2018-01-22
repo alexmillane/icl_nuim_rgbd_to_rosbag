@@ -50,6 +50,7 @@ const std::string kDefaultImageTopicName = "image";
 const std::string kDefaultDepthTopicName = "depth";
 const std::string kDefaultPointcloudTopicName = "pointcloud";
 const std::string kDefaultTransformTopicName = "transform";
+constexpr bool kDefaultDistancesInCm = false;
 
 // Class handling global alignment calculation and publishing
 class HandaToRosbag {
@@ -112,6 +113,7 @@ class HandaToRosbag {
 
   // Filepaths
   std::string data_root_;
+  std::string pose_path_; // For the freiburg pose format.
   std::string output_path_;
 
   // The output bag
@@ -137,6 +139,10 @@ class HandaToRosbag {
   // Members for zeroing the first camera position
   bool first_pose_flag_;
   Transformation first_pose_;
+
+  // This member indicates if loaded positions are in cm
+  // This is true for the office datasets.
+  bool distances_in_cm_;
 
   /*  // Subscribes and Advertises to the appropriate ROS topics
     void subscribeToTopics();
