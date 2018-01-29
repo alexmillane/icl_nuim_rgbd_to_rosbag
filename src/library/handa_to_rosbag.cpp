@@ -21,24 +21,46 @@ HandaToRosbag::HandaToRosbag(const ros::NodeHandle& nh,
       pointcloud_topic_name_(kDefaultPointcloudTopicName),
       transform_topic_name_(kDefaultTransformTopicName),
       first_pose_flag_(true),
-      distances_in_cm_(kDefaultDistancesInCm) {
+      distances_in_cm_(kDefaultDistancesInCm),
+      use_pov_data_(kDefaultUsePovData) {
   // Getting data and params
-  // subscribeToTopics();
-  // advertiseTopics();
-  // getParametersFromRos();
+  getParametersFromRos(nh_private);
 
   // HARDCODED PATHS
-  data_root_ = std::string(
-      "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
-      "living_room_traj0_loop/raw");
+  // data_root_ = std::string(
+  //    "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
+  //    "living_room_traj0_loop/raw");
 
-  output_path_ = std::string(
-      "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
-      "living_room_traj0_loop/rosbag/data.bag");
+  // output_path_ = std::string(
+  //    "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
+  //    "living_room_traj0_loop/rosbag/data.bag");
 
-  pose_path_ = std::string(
-      "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
-      "livingRoom0.gt.freiburg");
+  // pose_path_ = std::string(
+  //    "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
+  //    "livingRoom0.gt.freiburg");
+}
+
+void HandaToRosbag::getParametersFromRos(const ros::NodeHandle& nh_private) {
+  // Loading whether to use POV or TUM data
+  nh_private.param("use_pov_data", use_pov_data_, use_pov_data_);
+  // Path to raw POV Data
+  // NOTE(alexmillane): This is slightly confusing at the moment because even if
+  // TUM format is selected we need this path for the poses.
+  CHECK(nh_private.getParam("data_root", data_root_))
+      << "Must provide the path to the raw data (POV format) in the "
+         "parameter \"data_root\"";
+  // Getting the input and output paths
+  if (use_pov_data_) {
+    std::cout << "POV format data selected" << std::endl;
+  } else {
+    std::cout << "TUM format data selected" << std::endl;
+    CHECK(nh_private.getParam("tum_data_root", tum_data_root_))
+        << "Must provide the path to the raw data (TUM format) in the "
+           "parameter \"tum_data_root\"";
+  }
+  CHECK(nh_private.getParam("output_path", output_path_))
+      << "Must provide the path to the output folder in the parameter "
+         "\"output_path\"";
 }
 
 void HandaToRosbag::run() {
@@ -54,8 +76,6 @@ void HandaToRosbag::run() {
   // Looping and loading images
   int image_idx = 0;
   bool first_image = true;
-  cv::Mat image;
-  cv::Mat depth;
   while (ros::ok()) {
     // DEBUG
     std::cout << "image_idx: " << std::endl << image_idx << std::endl;
@@ -64,7 +84,8 @@ void HandaToRosbag::run() {
     const ros::Time timestamp = indexToTimestamp((image_idx + 1));
 
     // Loading the RGB image (exiting loop if out of images)
-    if(!loadImage(image_idx, &image)) {
+    cv::Mat image;
+    if (!loadImage(image_idx, &image)) {
       break;
     }
     // Writing the image to the bag
@@ -75,20 +96,20 @@ void HandaToRosbag::run() {
     if (!image_params_valid_) {
       saveImageParams(image);
     }
-
     // Loading the depth image and converting to metric depth values
+    cv::Mat depth;
     loadDepth(image_idx, &depth);
-    povRayImageToDepthImage(&depth);
 
     // Inspecting the depth images
-    //for (auto pixel_it = depth.begin<float>(); pixel_it != depth.end<float>();
+    // for (auto pixel_it = depth.begin<float>(); pixel_it !=
+    // depth.end<float>();
     //     pixel_it++) {
     //  std::cout << "pixel: " << *pixel_it << std::endl;
     //}
-    //double min;
-    //double max;
-    //cv::minMaxLoc(depth, &min, &max);
-    //std::cout << "[ " << min << " to " << max << " ]" << std::endl;
+    // double min;
+    // double max;
+    // cv::minMaxLoc(depth, &min, &max);
+    // std::cout << "[ " << min << " to " << max << " ]" << std::endl;
 
     // Writing the depth image to the bag
     sensor_msgs::Image depth_msg;
@@ -101,26 +122,27 @@ void HandaToRosbag::run() {
     // depthImageToPointcloud(depth, &pointcloud);
     pcl::PointCloud<pcl::PointXYZRGB> pointcloud;
     depthImageToPointcloud(depth, image, &pointcloud);
-    //pcl::PointCloud<pcl::PointXYZI> pointcloud;
-    //depthImageToPointcloud(depth, image, &pointcloud);
+    // pcl::PointCloud<pcl::PointXYZI> pointcloud;
+    // depthImageToPointcloud(depth, image, &pointcloud);
     pointcloud.header.frame_id = "cam";
     pointcloud.header.stamp = static_cast<uint64_t>(timestamp.toNSec() / 1000);
     bag_.write(pointcloud_topic_name_, timestamp, pointcloud);
-
     // Gettting the camera pose in the world (POVRay) frame
     Transformation T_W_C;
-    // FROM NATIVE FORMAT (SHIT)
-    //loadPose(image_idx, &T_W_C);
-    //povRayPoseToMetricPose(&T_W_C);
-    // FROM FREIBURG FORMAT
-    loadFreiburgPose(pose_path_, image_idx, &T_W_C);
-    removePoseOffset(&T_W_C);
+    // Loading from native POVRay format
+    loadPose(image_idx, &T_W_C);
+    povRayPoseToMetricPose(&T_W_C);
+    // Removing the initial camera offset if requested
+    constexpr bool remove_pose_offet = false;
+    if (remove_pose_offet) {
+      removePoseOffset(&T_W_C);
+    }
     // Writing to TransformStamped to bag
     geometry_msgs::TransformStamped T_W_C_msg;
     transformToRos(T_W_C, &T_W_C_msg);
     T_W_C_msg.header.stamp = timestamp;
-    T_W_C_msg.header.frame_id = "world";//"world";
-    T_W_C_msg.child_frame_id = "cam";//"cam";
+    T_W_C_msg.header.frame_id = "world";  //"world";
+    T_W_C_msg.child_frame_id = "cam";     //"cam";
     bag_.write(transform_topic_name_, timestamp, T_W_C_msg);
     // Writing to Tf to bag
     tf::tfMessage T_W_C_tf_msg;
@@ -128,11 +150,11 @@ void HandaToRosbag::run() {
     bag_.write("/tf", timestamp, T_W_C_tf_msg);
 
     // DEBUG
-    //std::cout << "T_W_C: " << std::endl << T_W_C.asVector() << std::endl;
+    // std::cout << "T_W_C: " << std::endl << T_W_C.asVector() << std::endl;
 
     // DEBUG
-    //displayImage(image);
-    //displayDepth(depth);
+    // displayImage(image);
+    // displayDepth(depth);
 
     ++image_idx;
   }
@@ -145,8 +167,10 @@ bool HandaToRosbag::loadCameraParameters() {
   // float K[3][3] = { 481.20, 0,       319.50,
   //                   0,      -480.00, 239.50,
   //                   0,      0,       1.00   };
+  // Not that I have not used the negative focal length because I transform
+  // everything into a right handed coordinate system and openCV definitions.
   camera_calibration_.fx = 481.20;
-  camera_calibration_.fy = -480.00;
+  camera_calibration_.fy = 480.00;
   camera_calibration_.cx = 319.50;
   camera_calibration_.cy = 239.50;
   // Hardcoded cam params are always successful
@@ -155,7 +179,14 @@ bool HandaToRosbag::loadCameraParameters() {
 
 bool HandaToRosbag::loadImage(const int image_idx, cv::Mat* image_ptr) const {
   // The path to the image
-  std::string image_path(indexToImagePath(image_idx));
+  std::string image_path;
+  if (use_pov_data_) {
+    image_path = indexToImagePathPov(image_idx);
+  } else {
+    image_path = indexToImagePathTum(image_idx);
+  }
+  // DEBUG
+  std::cout << "image_path: " << image_path << std::endl;
   // Loading the image
   cv::Mat image_temp;
   image_temp = cv::imread(
@@ -168,7 +199,11 @@ bool HandaToRosbag::loadImage(const int image_idx, cv::Mat* image_ptr) const {
     return false;
   }
   // Converting to a ROS compatible type
-  image_temp.convertTo(*image_ptr, CV_8UC3, 1.0 / 255.0);
+  if (use_pov_data_) {
+    image_temp.convertTo(*image_ptr, CV_8UC3, 1.0 / 255.0);
+  } else {
+    image_temp.convertTo(*image_ptr, CV_8UC3);
+  }
   // Success
   return true;
 }
@@ -177,7 +212,26 @@ bool HandaToRosbag::loadDepth(const int image_idx, cv::Mat* depth_ptr) const {
   CHECK(image_params_valid_)
       << "Need valid image params before loading depth image";
   // The path to the image
-  std::string depth_path(indexToDepthPath(image_idx));
+  std::string depth_path;
+  if (use_pov_data_) {
+    depth_path = indexToDepthPathPov(image_idx);
+  } else {
+    depth_path = indexToDepthPathTum(image_idx);
+  }
+  // DEBUG
+  std::cout << "depth_path: " << depth_path << std::endl;
+  // Loading the data
+  if (use_pov_data_) {
+    loadDepthPov(depth_path, depth_ptr);
+  } else {
+    loadDepthTum(depth_path, depth_ptr);
+  }
+  // NEED TO DO TESTING FOR RUNNING OUT OF VALUES EARLY.
+  return true;
+}
+
+bool HandaToRosbag::loadDepthPov(const std::string& depth_path,
+                                 cv::Mat* depth_ptr) const {
   // Creating the (empty) image
   *depth_ptr = cv::Mat(image_size_rows_, image_size_cols_, CV_32FC1);
   // Loading the depth values into the matrix
@@ -190,8 +244,51 @@ bool HandaToRosbag::loadDepth(const int image_idx, cv::Mat* depth_ptr) const {
     depth_ptr->at<float>(row, col) = m;
     idx++;
   }
-  // NEED TO DO TESTING FOR RUNNING OUT OF VALUES EARLY.
-  return true;
+  // Converting the POV format to the planar depth
+  povRayImageToDepthImage(depth_ptr);
+}
+
+bool HandaToRosbag::loadDepthTum(const std::string& depth_path,
+                                 cv::Mat* depth_ptr) const {
+  // Loading the image
+  cv::Mat depth_temp;
+  depth_temp = cv::imread(
+      depth_path, CV_LOAD_IMAGE_UNCHANGED);  // CV_8UC3, CV_LOAD_IMAGE_UNCHANGED
+  // Checking the image encoding
+  // std::cout << "image_ptr->type():" << depth_temp.type() << std::endl;
+  // Testing success
+  if (!depth_temp.data) {
+    std::cout << "Could not load image data.\n";
+    return false;
+  }
+
+/*  // Inspecting for zeros
+  int num_zeros = 0;
+  for (size_t row_idx = 0; row_idx < depth_temp.rows; row_idx++) {
+    for (size_t col_idx = 0; col_idx < depth_temp.cols; col_idx++) {
+      uint16_t pixel_val = depth_temp.at<uint16_t>(row_idx, col_idx);
+      if (pixel_val == 0) {
+        num_zeros++;
+      }
+    }
+  }
+  std::cout << "num_zeros: " << num_zeros << std::endl;
+*/
+  // Converting to a ROS compatible type
+  depth_temp.convertTo(*depth_ptr, CV_32FC1, 1.0 / 5000.0);
+
+/*  // re Inspecting for zeros
+  num_zeros = 0;
+  for (size_t row_idx = 0; row_idx < depth_ptr->rows; row_idx++) {
+    for (size_t col_idx = 0; col_idx < depth_ptr->cols; col_idx++) {
+      float pixel_val = depth_ptr->at<float>(row_idx, col_idx);
+      if (pixel_val == 0) {
+        num_zeros++;
+      }
+    }
+  }
+  std::cout << "num_zeros: " << num_zeros << std::endl;
+*/
 }
 
 bool HandaToRosbag::loadPose(const int image_idx,
@@ -205,24 +302,36 @@ bool HandaToRosbag::loadPose(const int image_idx,
   return true;
 }
 
-inline std::string HandaToRosbag::indexToImagePath(const int idx) const {
-  return (data_root_ + "/" + "scene_00_" + indexToString(idx) + ".png");
+inline std::string HandaToRosbag::indexToImagePathPov(const int idx) const {
+  return (data_root_ + "/" + "scene_00_" + indexToStringPov(idx) + ".png");
 }
 
-inline std::string HandaToRosbag::indexToDepthPath(const int idx) const {
-  return (data_root_ + "/" + "scene_00_" + indexToString(idx) + ".depth");
+inline std::string HandaToRosbag::indexToImagePathTum(const int idx) const {
+  return (tum_data_root_ + "/rgb/" + indexToStringTum(idx) + ".png");
+}
+
+inline std::string HandaToRosbag::indexToDepthPathPov(const int idx) const {
+  return (data_root_ + "/" + "scene_00_" + indexToStringPov(idx) + ".depth");
+}
+
+inline std::string HandaToRosbag::indexToDepthPathTum(const int idx) const {
+  return (tum_data_root_ + "/depth/" + indexToStringTum(idx) + ".png");
 }
 
 inline std::string HandaToRosbag::indexToPosePath(const int idx) const {
-  return (data_root_ + "/" + "scene_00_" + indexToString(idx) + ".txt");
+  return (data_root_ + "/" + "scene_00_" + indexToStringPov(idx) + ".txt");
 }
 
-inline std::string HandaToRosbag::indexToString(const int idx) const {
+inline std::string HandaToRosbag::indexToStringPov(const int idx) const {
   // Getting a three digit index
   constexpr int num_chars = 4;
   std::stringstream ss;
   ss << std::setw(num_chars) << std::setfill('0') << idx;
   return ss.str();
+}
+
+inline std::string HandaToRosbag::indexToStringTum(const int idx) const {
+  return std::to_string(idx);
 }
 
 inline ros::Time HandaToRosbag::indexToTimestamp(const int idx) const {
@@ -295,7 +404,7 @@ float HandaToRosbag::povRayPixelToDepthPixel(const float povray_depth,
   if (distances_in_cm_) {
     constexpr float kCmToM = 1.0 / 100.0;
     planar_depth = planar_depth * kCmToM;
-  } 
+  }
   return planar_depth;
 }
 
@@ -306,15 +415,20 @@ void HandaToRosbag::depthImageToPointcloud(
   // Looping and generating 3D points
   for (size_t row_idx = 0; row_idx < depth.rows; row_idx++) {
     for (size_t col_idx = 0; col_idx < depth.cols; col_idx++) {
-      // Creating the point
-      pcl::PointXYZ point;
-      point.z = depth.at<float>(row_idx, col_idx);
-      point.x = (static_cast<float>(col_idx) - camera_calibration_.cx) *
-                point.z / camera_calibration_.fx;
-      point.y = (static_cast<float>(row_idx) - camera_calibration_.cy) *
-                point.z / camera_calibration_.fy;
-      // Adding to the could
-      pointcloud_ptr->push_back(point);
+      // Getting the depth
+      const float depth_val = depth.at<float>(row_idx, col_idx);
+      // Testing for missing depth
+      if (depth_val > std::numeric_limits<float>::min()) {
+        // Creating the point
+        pcl::PointXYZ point;
+        point.z = depth_val;
+        point.x = (static_cast<float>(col_idx) - camera_calibration_.cx) *
+                  point.z / camera_calibration_.fx;
+        point.y = (static_cast<float>(row_idx) - camera_calibration_.cy) *
+                  point.z / camera_calibration_.fy;
+        // Adding to the could
+        pointcloud_ptr->push_back(point);
+      }
     }
   }
 }
@@ -326,19 +440,24 @@ void HandaToRosbag::depthImageToPointcloud(
   // Looping and generating 3D points
   for (size_t row_idx = 0; row_idx < depth.rows; row_idx++) {
     for (size_t col_idx = 0; col_idx < depth.cols; col_idx++) {
-      // Creating the point
-      pcl::PointXYZRGB point;
-      point.z = depth.at<float>(row_idx, col_idx);
-      point.x = (static_cast<float>(col_idx) - camera_calibration_.cx) *
-                point.z / camera_calibration_.fx;
-      point.y = (static_cast<float>(row_idx) - camera_calibration_.cy) *
-                point.z / camera_calibration_.fy;
-      // Adding the color
-      point.b = image.at<cv::Vec3b>(row_idx, col_idx)[0];
-      point.g = image.at<cv::Vec3b>(row_idx, col_idx)[1];
-      point.r = image.at<cv::Vec3b>(row_idx, col_idx)[2];
-      // Adding to the could
-      pointcloud_ptr->push_back(point);
+      // Getting the depth
+      const float depth_val = depth.at<float>(row_idx, col_idx);
+      // Testing for missing depth
+      if (depth_val > std::numeric_limits<float>::min()) {
+        // Creating the point
+        pcl::PointXYZRGB point;
+        point.z = depth_val;
+        point.x = (static_cast<float>(col_idx) - camera_calibration_.cx) *
+                  point.z / camera_calibration_.fx;
+        point.y = (static_cast<float>(row_idx) - camera_calibration_.cy) *
+                  point.z / camera_calibration_.fy;
+        // Adding the color
+        point.b = image.at<cv::Vec3b>(row_idx, col_idx)[0];
+        point.g = image.at<cv::Vec3b>(row_idx, col_idx)[1];
+        point.r = image.at<cv::Vec3b>(row_idx, col_idx)[2];
+        // Adding to the could
+        pointcloud_ptr->push_back(point);
+      }
     }
   }
 }
@@ -350,20 +469,25 @@ void HandaToRosbag::depthImageToPointcloud(
   // Looping and generating 3D points
   for (size_t row_idx = 0; row_idx < depth.rows; row_idx++) {
     for (size_t col_idx = 0; col_idx < depth.cols; col_idx++) {
-      // Creating the point
-      pcl::PointXYZI point;
-      point.z = depth.at<float>(row_idx, col_idx);
-      point.x = (static_cast<float>(col_idx) - camera_calibration_.cx) *
-                point.z / camera_calibration_.fx;
-      point.y = (static_cast<float>(row_idx) - camera_calibration_.cy) *
-                point.z / camera_calibration_.fy;
-      // Adding the color
-      const uint8_t b = image.at<cv::Vec3b>(row_idx, col_idx)[0];
-      const uint8_t g = image.at<cv::Vec3b>(row_idx, col_idx)[1];
-      const uint8_t r = image.at<cv::Vec3b>(row_idx, col_idx)[2];
-      point.intensity = bgrToMono(b, g, r);
-      // Adding to the could
-      pointcloud_ptr->push_back(point);
+      // Getting the depth
+      const float depth_val = depth.at<float>(row_idx, col_idx);
+      // Testing for missing depth
+      if (depth_val > std::numeric_limits<float>::min()) {
+        // Creating the point
+        pcl::PointXYZI point;
+        point.z = depth_val;
+        point.x = (static_cast<float>(col_idx) - camera_calibration_.cx) *
+                  point.z / camera_calibration_.fx;
+        point.y = (static_cast<float>(row_idx) - camera_calibration_.cy) *
+                  point.z / camera_calibration_.fy;
+        // Adding the color
+        const uint8_t b = image.at<cv::Vec3b>(row_idx, col_idx)[0];
+        const uint8_t g = image.at<cv::Vec3b>(row_idx, col_idx)[1];
+        const uint8_t r = image.at<cv::Vec3b>(row_idx, col_idx)[2];
+        point.intensity = bgrToMono(b, g, r);
+        // Adding to the could
+        pointcloud_ptr->push_back(point);
+      }
     }
   }
 }
@@ -376,7 +500,7 @@ void HandaToRosbag::removePoseOffset(Transformation* T_W_C_ptr) {
     first_pose_flag_ = false;
   }
   // Removing the first camera position offset
-  //T_W_C_ptr->getPosition() =
+  // T_W_C_ptr->getPosition() =
   //    first_pose_.getPosition() - T_W_C_ptr->getPosition();
   *T_W_C_ptr = first_pose_.inverse() * (*T_W_C_ptr);
 }

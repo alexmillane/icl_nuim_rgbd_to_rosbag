@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<launch>
+
+  <arg name="dataset_num" value="3" />
+
+  <arg name="data_root" value="/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/living_room_traj$(arg dataset_num)_loop/raw" />
+  <arg name="output_path" value="/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/living_room_traj$(arg dataset_num)_loop/rosbag/data.bag"/>
+  <arg name="tum_data_root" value="/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/living_room_traj$(arg dataset_num)_loop/tum"/>
+
+  <arg name="use_pov_data" default="false"/>
+
+  <node pkg="handa_to_rosbag" name="handa_to_rosbag_node" type="handa_to_rosbag_node" output="screen" >
+    <param name="data_root" value="$(arg data_root)" />
+    <param name="tum_data_root" value="$(arg tum_data_root)" />
+    <param name="output_path" value="$(arg output_path)" />
+    <param name="use_pov_data" value="$(arg use_pov_data)" />
+  </node>
+
+</launch>
+

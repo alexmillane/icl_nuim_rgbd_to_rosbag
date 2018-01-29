@@ -51,6 +51,7 @@ const std::string kDefaultDepthTopicName = "depth";
 const std::string kDefaultPointcloudTopicName = "pointcloud";
 const std::string kDefaultTransformTopicName = "transform";
 constexpr bool kDefaultDistancesInCm = false;
+constexpr bool kDefaultUsePovData = true;
 
 // Class handling global alignment calculation and publishing
 class HandaToRosbag {
@@ -62,6 +63,8 @@ class HandaToRosbag {
   void run();
 
  private:
+  // Loading parameters from ros
+  void getParametersFromRos(const ros::NodeHandle& nh_private);
 
   // Gets the camera parameters setting the relavent members
   bool loadCameraParameters();
@@ -69,13 +72,18 @@ class HandaToRosbag {
   // Loads an image at an index, returning false if none is available
   bool loadImage(const int image_idx, cv::Mat* image_ptr) const;
   bool loadDepth(const int image_idx, cv::Mat* depth_ptr) const;
+  bool loadDepthPov(const std::string& depth_path, cv::Mat* depth_ptr) const;
+  bool loadDepthTum(const std::string& depth_path, cv::Mat* depth_ptr) const;
   bool loadPose(const int image_idx, Transformation* T_W_C_ptr) const;
 
   // Generates a Handa image path from the index
-  inline std::string indexToImagePath(const int idx) const;
-  inline std::string indexToDepthPath(const int idx) const;
+  inline std::string indexToImagePathPov(const int idx) const;
+  inline std::string indexToImagePathTum(const int idx) const;
+  inline std::string indexToDepthPathPov(const int idx) const;
+  inline std::string indexToDepthPathTum(const int idx) const;
   inline std::string indexToPosePath(const int idx) const;
-  inline std::string indexToString(const int idx) const;
+  inline std::string indexToStringPov(const int idx) const;
+  inline std::string indexToStringTum(const int idx) const;
 
   // Time stamp generation
   ros::Time indexToTimestamp(const int idx) const;
@@ -112,8 +120,10 @@ class HandaToRosbag {
   void povRayPoseToMetricPose(Transformation* T_W_C_ptr) const;
 
   // Filepaths
+  bool use_pov_data_; // True for POV data, false for TUM data
   std::string data_root_;
-  std::string pose_path_; // For the freiburg pose format.
+  std::string tum_data_root_;
+  //std::string pose_path_; // For the freiburg pose format.
   std::string output_path_;
 
   // The output bag
