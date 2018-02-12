@@ -25,19 +25,6 @@ HandaToRosbag::HandaToRosbag(const ros::NodeHandle& nh,
       use_pov_data_(kDefaultUsePovData) {
   // Getting data and params
   getParametersFromRos(nh_private);
-
-  // HARDCODED PATHS
-  // data_root_ = std::string(
-  //    "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
-  //    "living_room_traj0_loop/raw");
-
-  // output_path_ = std::string(
-  //    "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
-  //    "living_room_traj0_loop/rosbag/data.bag");
-
-  // pose_path_ = std::string(
-  //    "/home/millanea/trunk/datasets/icl_nuim_rgbd_benchmark/living_room/"
-  //    "livingRoom0.gt.freiburg");
 }
 
 void HandaToRosbag::getParametersFromRos(const ros::NodeHandle& nh_private) {
@@ -91,6 +78,7 @@ void HandaToRosbag::run() {
     // Writing the image to the bag
     sensor_msgs::Image image_msg;
     imageToRos(image, &image_msg);
+    image_msg.header.stamp = timestamp;
     bag_.write(image_topic_name_, timestamp, image_msg);
     // Saving the image params if required
     if (!image_params_valid_) {
@@ -114,6 +102,7 @@ void HandaToRosbag::run() {
     // Writing the depth image to the bag
     sensor_msgs::Image depth_msg;
     depthToRos(depth, &depth_msg);
+    depth_msg.header.stamp = timestamp;
     bag_.write(depth_topic_name_, timestamp, depth_msg);
 
     // Generating the pointcloud
